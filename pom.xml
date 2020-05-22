@@ -56,6 +56,13 @@
             <version>1.2.31</version>
         </dependency>
 
+        <!-- druid中的SQL语法分析树 -->
+        <dependency>
+            <groupId>com.alibaba</groupId>
+            <artifactId>druid</artifactId>
+            <version>1.1.9</version>
+        </dependency>
+
     </dependencies>
 
     <build>

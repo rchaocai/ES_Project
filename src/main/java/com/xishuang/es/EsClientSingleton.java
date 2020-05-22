@@ -1,4 +1,4 @@
-package com.xishuang.es.server;
+package com.xishuang.es;
 
 import com.xishuang.es.util.StringUtils;
 import org.apache.http.HttpHost;

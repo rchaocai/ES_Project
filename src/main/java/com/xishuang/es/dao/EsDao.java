@@ -1,6 +1,6 @@
 package com.xishuang.es.dao;
 
-import com.xishuang.es.server.EsClientSingleton;
+import com.xishuang.es.EsClientSingleton;
 import org.apache.http.HttpHost;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -14,4 +14,6 @@ public class EsDao {
         LOGGER.info("init [{}]", this.getClass().getName());
         this.client = EsClientSingleton.getInstance(hosts);
     }
+
+
 }
