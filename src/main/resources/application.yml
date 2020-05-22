@@ -1,0 +1,6 @@
+server:
+  port: 8082
+
+# 设置es的ip地址，多个以逗号分隔
+elasticsearch:
+  ip: 47.107.187.164:9200
