@@ -1,25 +1,25 @@
 package com.xishuang.es.sql;
 
-import com.alibaba.druid.sql.ast.SQLExpr;
-import com.alibaba.druid.sql.ast.SQLStatement;
-import com.alibaba.druid.sql.ast.expr.SQLBetweenExpr;
+import com.alibaba.druid.sql.ast.*;
 import com.alibaba.druid.sql.ast.expr.SQLBinaryOpExpr;
 import com.alibaba.druid.sql.ast.expr.SQLBinaryOperator;
-import com.alibaba.druid.sql.ast.expr.SQLInListExpr;
-import com.alibaba.druid.sql.ast.statement.SQLSelectItem;
-import com.alibaba.druid.sql.ast.statement.SQLSelectQuery;
-import com.alibaba.druid.sql.ast.statement.SQLSelectQueryBlock;
-import com.alibaba.druid.sql.ast.statement.SQLSelectStatement;
+import com.alibaba.druid.sql.ast.statement.*;
 import com.alibaba.druid.sql.dialect.mysql.parser.MySqlStatementParser;
 import com.alibaba.druid.sql.dialect.mysql.visitor.MySqlSchemaStatVisitor;
+import com.alibaba.druid.stat.TableStat;
 import com.alibaba.druid.util.JdbcConstants;
+import com.xishuang.es.dao.EsDao;
+import com.xishuang.es.domain.EsCommonResult;
 import com.xishuang.es.util.StringUtils;
 import org.elasticsearch.index.query.*;
+import org.elasticsearch.search.builder.SearchSourceBuilder;
+import org.elasticsearch.search.sort.SortOrder;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 
@@ -30,7 +30,7 @@ public class SqlParser {
     private final static String dbType = JdbcConstants.MYSQL;
     private final static Logger logger = LoggerFactory.getLogger(SqlParser.class);
 
-    public static void parse(String sql) throws Exception {
+    public static void parse(EsDao esDao, String sql) throws Exception {
         if (StringUtils.isBlank(sql)) {
             throw new IllegalArgumentException("SQL不能为空");
         }
@@ -47,16 +47,113 @@ public class SqlParser {
         SQLSelectQuery sqlSelectQuery = sqlSelectStatement.getSelect().getQuery();
         SQLSelectQueryBlock sqlSelectQueryBlock = (SQLSelectQueryBlock) sqlSelectQuery;
 
-        SQLExpr whereExpr = sqlSelectQueryBlock.getWhere();
-        List<SQLSelectItem> selectList = sqlSelectQueryBlock.getSelectList();
 
-        // 处理where
-        BoolQueryBuilder queryBuilder = null;
-        QueryBuilder whereBuilder = whereHelper(whereExpr);
-
-        for (SQLSelectItem selectItem : selectList) {
-            System.out.println(selectItem.getExpr());
+        // 获取表名，只支持简单的单表查询
+        MySqlSchemaStatVisitor visitor = new MySqlSchemaStatVisitor();
+        stmt.accept(visitor);
+        Map<TableStat.Name, TableStat> tablesMap = visitor.getTables();
+        String tableName = null;
+        for (Map.Entry<TableStat.Name, TableStat> entry : tablesMap.entrySet()) {
+            tableName = entry.getKey().getName();
+            if (tableName != null) {
+                break;
+            }
         }
+
+        SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder();
+        // 针对select字段做处理
+        List<SQLSelectItem> selectList = sqlSelectQueryBlock.getSelectList();
+        setSelect(searchSourceBuilder, selectList);
+        // 针对limit做处理
+        SQLLimit sqlLimit = sqlSelectQueryBlock.getLimit();
+        setLimit(searchSourceBuilder, sqlLimit);
+        // 针对order做处理
+        SQLOrderBy sqlOrderBy = sqlSelectQueryBlock.getOrderBy();
+        setOrder(searchSourceBuilder, sqlOrderBy);
+        // 针对where做处理
+        SQLExpr whereExpr = sqlSelectQueryBlock.getWhere();
+        QueryBuilder queryBuilder = setWhere(whereExpr);
+
+        // 具体查询请求
+//        EsCommonResult result = esDao.listToQueryResult(tableName, searchSourceBuilder);
+//        System.out.println("测试:" + result.getBeans().size());
+    }
+
+
+    /**
+     * 针对select字段做处理
+     */
+    private static void setSelect(SearchSourceBuilder searchSourceBuilder, List<SQLSelectItem> selectList) {
+        System.out.println(selectList);
+        List<String> columnList = new ArrayList<>();
+        for (SQLSelectItem selectItem : selectList) {
+            if ("*".equals(selectItem.toString())) {
+                break;
+            } else {
+                columnList.add(selectItem.toString());
+            }
+        }
+
+        if (columnList.isEmpty()) return;
+        searchSourceBuilder.fetchSource(columnList.toArray(new String[0]), null);
+    }
+
+
+    /**
+     * 针对limit处理
+     */
+    private static void setLimit(SearchSourceBuilder searchSourceBuilder, SQLLimit sqlLimit) {
+        if (sqlLimit == null) return;
+
+        if (sqlLimit.getOffset() != null) {
+            searchSourceBuilder.from(Integer.parseInt(sqlLimit.getOffset().toString()));
+        }
+        if (sqlLimit.getRowCount() != null) {
+            searchSourceBuilder.size(Integer.parseInt(sqlLimit.getRowCount().toString()));
+        }
+
+        // 针对order进行处理
+        System.out.println("测试" + sqlLimit.getRowCount());
+        System.out.println("测试" + sqlLimit.getOffset());
+    }
+
+    /**
+     * 针对order做处理
+     */
+    private static void setOrder(SearchSourceBuilder searchSourceBuilder, SQLOrderBy sqlOrderBy) {
+        if (sqlOrderBy == null) return;
+
+        List<SQLSelectOrderByItem> orderByList = sqlOrderBy.getItems();
+        for (SQLSelectOrderByItem item : orderByList) {
+            String orderBy = item.getExpr().toString();
+            if (item.getType() == null) {
+                searchSourceBuilder.sort(orderBy);
+            } else {
+                searchSourceBuilder.sort(orderBy,
+                        item.getType().equals(SQLOrderingSpecification.ASC) ? SortOrder.ASC : SortOrder.DESC);
+            }
+        }
+    }
+
+    /**
+     * 针对where做处理
+     */
+    private static QueryBuilder setWhere(SQLExpr whereExpr) throws Exception {
+        if (whereExpr == null) return QueryBuilders.boolQuery();
+
+        if (whereExpr instanceof SQLBinaryOpExpr) { // 二元运算
+            SQLBinaryOperator operator = ((SQLBinaryOpExpr) whereExpr).getOperator(); // 获取运算符
+            System.out.println(operator);
+            if (operator.isLogical()) { // and,or,xor
+                System.out.println(whereExpr);
+                return handleLogicalExpr(whereExpr);
+            } else if (operator.isRelational()) { // 具体的运算,位于叶子节点
+                System.out.println(whereExpr);
+                return handleRelationalExpr(whereExpr);
+            }
+        }
+
+        return QueryBuilders.boolQuery();
     }
 
 
@@ -72,38 +169,41 @@ public class SqlParser {
             SQLBinaryOperator operator = ((SQLBinaryOpExpr) expr).getOperator(); // 获取运算符
             if (operator.isLogical()) { // and,or,xor
                 return handleLogicalExpr(expr);
-            } else if (operator.isRelational()) { // 具体的运算,位于叶子节点
-                return handleRelationalExpr(expr);
             }
-        } else if (expr instanceof SQLBetweenExpr) { // between运算
-            SQLBetweenExpr between = ((SQLBetweenExpr) expr);
-            boolean isNotBetween = between.isNot(); // between or not between ?
-            String testExpr = between.testExpr.toString();
-            String fromStr = formatSQLValue(between.beginExpr.toString());
-            String toStr = formatSQLValue(between.endExpr.toString());
-            if (isNotBetween) {
-                bridge.must(QueryBuilders.rangeQuery(testExpr).lt(fromStr).gt(toStr));
-            } else {
-                bridge.must(QueryBuilders.rangeQuery(testExpr).gte(fromStr).lte(toStr));
-            }
-            return bridge;
-        } else if (expr instanceof SQLInListExpr) { // SQL的 in语句，ES中对应的是terms
-            SQLInListExpr siExpr = (SQLInListExpr) expr;
-            boolean isNotIn = siExpr.isNot(); // in or not in?
-            String leftSide = siExpr.getExpr().toString();
-            List<SQLExpr> inSQLList = siExpr.getTargetList();
-            List<String> inList = new ArrayList<>();
-            for (SQLExpr in : inSQLList) {
-                String str = formatSQLValue(in.toString());
-                inList.add(str);
-            }
-            if (isNotIn) {
-                bridge.mustNot(QueryBuilders.termsQuery(leftSide, inList));
-            } else {
-                bridge.must(QueryBuilders.termsQuery(leftSide, inList));
-            }
-            return bridge;
+//            else if (operator.isRelational()) { // 具体的运算,位于叶子节点
+//                return handleRelationalExpr(expr);
+//            }
         }
+//        else if (expr instanceof SQLBetweenExpr) { // between运算
+//            SQLBetweenExpr between = ((SQLBetweenExpr) expr);
+//            boolean isNotBetween = between.isNot(); // between or not between ?
+//            String testExpr = between.testExpr.toString();
+//            String fromStr = formatSQLValue(between.beginExpr.toString());
+//            String toStr = formatSQLValue(between.endExpr.toString());
+//            if (isNotBetween) {
+//                bridge.must(QueryBuilders.rangeQuery(testExpr).lt(fromStr).gt(toStr));
+//            } else {
+//                bridge.must(QueryBuilders.rangeQuery(testExpr).gte(fromStr).lte(toStr));
+//            }
+//            return bridge;
+//        }
+//        else if (expr instanceof SQLInListExpr) { // SQL的 in语句，ES中对应的是terms
+//            SQLInListExpr siExpr = (SQLInListExpr) expr;
+//            boolean isNotIn = siExpr.isNot(); // in or not in?
+//            String leftSide = siExpr.getExpr().toString();
+//            List<SQLExpr> inSQLList = siExpr.getTargetList();
+//            List<String> inList = new ArrayList<>();
+//            for (SQLExpr in : inSQLList) {
+//                String str = formatSQLValue(in.toString());
+//                inList.add(str);
+//            }
+//            if (isNotIn) {
+//                bridge.mustNot(QueryBuilders.termsQuery(leftSide, inList));
+//            } else {
+//                bridge.must(QueryBuilders.termsQuery(leftSide, inList));
+//            }
+//            return bridge;
+//        }
         return bridge;
     }
 
@@ -118,8 +218,8 @@ public class SqlParser {
         SQLExpr rightExpr = ((SQLBinaryOpExpr) expr).getRight();
 
         // 分别递归左右子树，再根据逻辑运算符将结果归并
-        QueryBuilder leftBridge = whereHelper(leftExpr);
-        QueryBuilder rightBridge = whereHelper(rightExpr);
+        QueryBuilder leftBridge = setWhere(leftExpr);
+        QueryBuilder rightBridge = setWhere(rightExpr);
         if (operator.equals(SQLBinaryOperator.BooleanAnd)) {
             bridge.must(leftBridge).must(rightBridge);
         } else if (operator.equals(SQLBinaryOperator.BooleanOr)) {
@@ -134,11 +234,14 @@ public class SqlParser {
      */
     private static QueryBuilder handleRelationalExpr(SQLExpr expr) {
         SQLExpr leftExpr = ((SQLBinaryOpExpr) expr).getLeft();
+        SQLExpr rightExpr = ((SQLBinaryOpExpr) expr).getRight();
         if (Objects.isNull(leftExpr)) {
             throw new NullPointerException("表达式左侧不得为空");
         }
         String leftExprStr = leftExpr.toString();
-        String rightExprStr = formatSQLValue(((SQLBinaryOpExpr) expr).getRight().toString()); // TODO:表达式右侧可以后续支持方法调用
+        String rightExprStr = rightExpr.toString();
+        System.out.println(leftExprStr + ":" + rightExprStr);
+//        String rightExprStr = formatSQLValue(); // TODO:表达式右侧可以后续支持方法调用
         SQLBinaryOperator operator = ((SQLBinaryOpExpr) expr).getOperator(); // 获取运算符
         QueryBuilder queryBuilder;
         switch (operator) {
