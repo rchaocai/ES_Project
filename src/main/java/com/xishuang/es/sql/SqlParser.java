@@ -73,10 +73,10 @@ public class SqlParser {
         // 针对where做处理
         SQLExpr whereExpr = sqlSelectQueryBlock.getWhere();
         QueryBuilder queryBuilder = setWhere(whereExpr);
-
+        searchSourceBuilder.query(queryBuilder);
         // 具体查询请求
-//        EsCommonResult result = esDao.listToQueryResult(tableName, searchSourceBuilder);
-//        System.out.println("测试:" + result.getBeans().size());
+        EsCommonResult result = esDao.listToQueryResult(tableName, searchSourceBuilder);
+        System.out.println("测试:" + result.getBeans().size());
     }
 
 
@@ -235,14 +235,12 @@ public class SqlParser {
     private static QueryBuilder handleRelationalExpr(SQLExpr expr) {
         SQLExpr leftExpr = ((SQLBinaryOpExpr) expr).getLeft();
         SQLExpr rightExpr = ((SQLBinaryOpExpr) expr).getRight();
-        if (Objects.isNull(leftExpr)) {
-            throw new NullPointerException("表达式左侧不得为空");
-        }
         String leftExprStr = leftExpr.toString();
         String rightExprStr = rightExpr.toString();
+        rightExprStr = rightExprStr.replace("'", "");
         System.out.println(leftExprStr + ":" + rightExprStr);
-//        String rightExprStr = formatSQLValue(); // TODO:表达式右侧可以后续支持方法调用
-        SQLBinaryOperator operator = ((SQLBinaryOpExpr) expr).getOperator(); // 获取运算符
+        // 获取运算符
+        SQLBinaryOperator operator = ((SQLBinaryOpExpr) expr).getOperator();
         QueryBuilder queryBuilder;
         switch (operator) {
             case GreaterThanOrEqual:
