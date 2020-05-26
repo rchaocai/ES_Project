@@ -2,7 +2,9 @@ package com.xishuang.es.dao;
 
 import com.alibaba.fastjson.JSONObject;
 import com.xishuang.es.EsClientSingleton;
+import com.xishuang.es.domain.EsAggregationResult;
 import com.xishuang.es.domain.EsCommonResult;
+import com.xishuang.es.domain.EsGroupResult;
 import com.xishuang.es.util.StringUtils;
 import org.apache.http.HttpHost;
 import org.apache.logging.log4j.LogManager;
@@ -26,6 +28,10 @@ import org.elasticsearch.search.aggregations.bucket.composite.CompositeAggregati
 import org.elasticsearch.search.aggregations.bucket.composite.CompositeValuesSourceBuilder;
 import org.elasticsearch.search.aggregations.bucket.composite.ParsedComposite;
 import org.elasticsearch.search.aggregations.bucket.composite.TermsValuesSourceBuilder;
+import org.elasticsearch.search.aggregations.bucket.terms.Terms;
+import org.elasticsearch.search.aggregations.bucket.terms.TermsAggregationBuilder;
+import org.elasticsearch.search.aggregations.metrics.ParsedTopHits;
+import org.elasticsearch.search.aggregations.metrics.TopHitsAggregationBuilder;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
 import org.springframework.lang.Nullable;
 
@@ -36,9 +42,9 @@ import java.util.Map;
 
 public class EsDao {
     private static final Logger LOGGER = LogManager.getLogger(EsDao.class);
-    private RestHighLevelClient client;
+    private final RestHighLevelClient client;
     private long defaultSearchTimeoutMs = 30_000; // 小于等于0则代表不限制
-    private Boolean defaultAllowPartialSearchResults = true; // null则代表不设置
+    private final Boolean defaultAllowPartialSearchResults = true; // null则代表不设置
 
     public EsDao(HttpHost... hosts) {
         LOGGER.info("init [{}]", this.getClass().getName());
@@ -46,6 +52,8 @@ public class EsDao {
     }
 
     /**
+     * 单纯查询索引列表
+     *
      * @param index               索引
      * @param searchSourceBuilder 查询语句
      */
@@ -87,13 +95,13 @@ public class EsDao {
     }
 
     /**
-     * count() group by语句进行处理，不排序
+     * 多字段分组聚合，count() group by语句进行处理，不排序
      */
-    public List<String> groupByNoSort(String index, QueryBuilder queryBuilder, List<CompositeValuesSourceBuilder<?>> sources) {
+    public List<EsAggregationResult> groupByNoSort(String index, QueryBuilder queryBuilder, List<CompositeValuesSourceBuilder<?>> sources) {
         LOGGER.info("aggregate term all => [{}]/[{}][{}]", index, queryBuilder.toString(), sources);
-        List<String> aggregationResults = new ArrayList<>();
         final int batchSize = 10000;
         Map<String, Object> afterKey = null;
+        List<EsAggregationResult> aggregationResults = new ArrayList<>();
         while (true) {
             CompositeAggregationBuilder composite = AggregationBuilders.composite("my_buckets", sources);
             composite.size(batchSize).aggregateAfter(afterKey);
@@ -108,9 +116,10 @@ public class EsDao {
             afterKey = parsedComposite.afterKey();
             List<ParsedComposite.ParsedBucket> buckets = parsedComposite.getBuckets();
             for (ParsedComposite.ParsedBucket bucket : buckets) {
-                Map<String, Object> map = bucket.getKey();
-                map.put("doc_count", bucket.getDocCount());
-                aggregationResults.add(map.toString());
+                EsAggregationResult result = new EsAggregationResult();
+                result.setKey(bucket.getKeyAsString());
+                result.setValue(bucket.getDocCount());
+                aggregationResults.add(result);
             }
             if (buckets.size() < batchSize) {
                 break;
@@ -119,7 +128,10 @@ public class EsDao {
         return aggregationResults;
     }
 
-    public List<String> aggregateToQueryResult(@Nullable String index, QueryBuilder queryBuilder, AggregationBuilder aggregationBuilder) {
+    /**
+     * 单字段分组聚合
+     */
+    public List<EsAggregationResult> aggregateToQueryResult(@Nullable String index, QueryBuilder queryBuilder, AggregationBuilder aggregationBuilder) {
         SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder();
         searchSourceBuilder.query(queryBuilder)
                 .trackTotalHits(false)
@@ -172,12 +184,50 @@ public class EsDao {
         }
     }
 
-    private List<String> bucketsToAggregationResults(List<? extends MultiBucketsAggregation.Bucket> list) {
-        List<String> aggregationResults = new ArrayList<>();
+    private List<EsAggregationResult> bucketsToAggregationResults(List<? extends MultiBucketsAggregation.Bucket> list) {
+        List<EsAggregationResult> aggregationResults = new ArrayList<>();
         for (MultiBucketsAggregation.Bucket b : list) {
-            aggregationResults.add(b.getKeyAsString() + ":" + b.getDocCount());
+            EsAggregationResult result = new EsAggregationResult();
+            result.setKey(b.getKeyAsString());
+            result.setValue(b.getDocCount());
+            aggregationResults.add(result);
         }
         return aggregationResults;
+    }
+
+    /**
+     * 分组top n计算
+     */
+    public List<EsGroupResult> aggregateGroupPage(@Nullable String index,
+                                                  QueryBuilder queryBuilder,
+                                                  TermsAggregationBuilder termsAggregationBuilder,
+                                                  TopHitsAggregationBuilder topHitsAggregationBuilder) {
+
+        SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder();
+        searchSourceBuilder.query(queryBuilder)
+                .trackTotalHits(false)
+                .size(0)
+                .aggregation(termsAggregationBuilder.subAggregation(topHitsAggregationBuilder));
+        Aggregation aggregate = aggregate(index, searchSourceBuilder);
+        if (aggregate == null) {
+            return new ArrayList<>();
+        }
+        Terms terms = (Terms) aggregate;
+        List<EsGroupResult> groups = new ArrayList<>();
+        for (org.elasticsearch.search.aggregations.bucket.terms.Terms.Bucket bucket : terms.getBuckets()) {
+            EsGroupResult group = new EsGroupResult();
+            group.setValue(bucket.getKeyAsString());
+            ParsedTopHits parsedTopHits = (ParsedTopHits) (bucket.getAggregations().get(topHitsAggregationBuilder.getName()));
+            SearchHits hits = parsedTopHits.getHits();
+            List<String> beans = new ArrayList<>();
+            for (SearchHit hit : hits) {
+                beans.add(JSONObject.toJSONString(hit.getSourceAsMap()));
+            }
+            group.setBeans(beans);
+            group.setAmounts(hits.getTotalHits().value);
+            groups.add(group);
+        }
+        return groups;
     }
 
     private boolean checkResponse(SearchResponse response) {
