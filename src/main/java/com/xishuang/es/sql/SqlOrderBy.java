@@ -2,12 +2,20 @@ package com.xishuang.es.sql;
 
 import com.alibaba.druid.sql.ast.SQLOrderBy;
 import com.alibaba.druid.sql.ast.SQLOrderingSpecification;
+import com.alibaba.druid.sql.ast.statement.SQLSelectItem;
 import com.alibaba.druid.sql.ast.statement.SQLSelectOrderByItem;
 import com.alibaba.druid.sql.ast.statement.SQLSelectQueryBlock;
+import com.xishuang.es.util.SqlUtil;
+import org.elasticsearch.index.query.InnerHitBuilder;
+import org.elasticsearch.search.aggregations.BucketOrder;
+import org.elasticsearch.search.aggregations.bucket.histogram.DateHistogramAggregationBuilder;
+import org.elasticsearch.search.aggregations.bucket.terms.TermsAggregationBuilder;
 import org.elasticsearch.search.aggregations.metrics.TopHitsAggregationBuilder;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
+import org.elasticsearch.search.sort.SortBuilders;
 import org.elasticsearch.search.sort.SortOrder;
 
+import java.util.ArrayList;
 import java.util.List;
 
 public class SqlOrderBy {
@@ -48,12 +56,64 @@ public class SqlOrderBy {
         }
     }
 
-    public boolean isOrderBy() {
-        return sqlOrderBy != null;
+    public void setOrder(InnerHitBuilder innerHitBuilder) {
+        if (sqlOrderBy == null) return;
+
+        List<SQLSelectOrderByItem> orderByList = sqlOrderBy.getItems();
+        for (SQLSelectOrderByItem item : orderByList) {
+            String orderBy = item.getExpr().toString();
+            innerHitBuilder.addSort(SortBuilders.fieldSort(orderBy).order(isASC(item) ? SortOrder.ASC : SortOrder.DESC));
+        }
     }
 
-    public List<SQLSelectOrderByItem> getOrderList() {
-        return sqlOrderBy.getItems();
+    /**
+     * @param aggSelectList select的聚合函数参数列表
+     * @param groupByColumn 分组字段
+     */
+    public void setOrder(TermsAggregationBuilder termsAggregationBuilder, List<SQLSelectItem> aggSelectList, String groupByColumn) {
+        if (sqlOrderBy == null) return;
+
+        List<SQLSelectOrderByItem> orderByList = sqlOrderBy.getItems();
+        List<BucketOrder> bucketOrderList = new ArrayList<>();
+        for (SQLSelectOrderByItem item : orderByList) {
+            String orderBy = item.getExpr().toString();
+
+            if (SqlUtil.isColumnMatch(aggSelectList, orderBy)) { // 排序字段是否是聚合后的字段
+                bucketOrderList.add(BucketOrder.count(isASC(item)));
+            } else if (groupByColumn.equals(orderBy)) { // 排序字段是否是分组字段
+                bucketOrderList.add(BucketOrder.key(isASC(item)));
+            }
+        }
+        if (!bucketOrderList.isEmpty()) {
+            termsAggregationBuilder.order(BucketOrder.compound(bucketOrderList));
+        }
+    }
+
+    /**
+     * @param aggSelectList select的聚合函数参数列表
+     * @param groupByColumn 分组字段
+     */
+    public void setOrder(DateHistogramAggregationBuilder dateHistogramAggregationBuilder, List<SQLSelectItem> aggSelectList, String groupByColumn) {
+        if (sqlOrderBy == null) return;
+
+        List<SQLSelectOrderByItem> orderByList = sqlOrderBy.getItems();
+        List<BucketOrder> bucketOrderList = new ArrayList<>();
+        for (SQLSelectOrderByItem item : orderByList) {
+            String orderBy = item.getExpr().toString();
+
+            if (SqlUtil.isColumnMatch(aggSelectList, orderBy)) { // 排序字段是否是聚合后的字段
+                bucketOrderList.add(BucketOrder.count(isASC(item)));
+            } else if (groupByColumn.equals(orderBy)) { // 排序字段是否是分组字段
+                bucketOrderList.add(BucketOrder.key(isASC(item)));
+            }
+        }
+        if (!bucketOrderList.isEmpty()) {
+            dateHistogramAggregationBuilder.order(BucketOrder.compound(bucketOrderList));
+        }
+    }
+
+    public boolean isOrderBy() {
+        return sqlOrderBy != null;
     }
 
     /**

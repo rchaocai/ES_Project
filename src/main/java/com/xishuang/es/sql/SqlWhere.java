@@ -55,7 +55,6 @@ public class SqlWhere {
     public BoolQueryBuilder setWhereConnect(List<WhereLogical> whereLogicals) {
         BoolQueryBuilder boolQueryBuilder = QueryBuilders.boolQuery();
         List<QueryBuilder> filters = boolQueryBuilder.filter();
-        System.out.println(whereLogicals.size());
         for (WhereLogical whereLogical : whereLogicals) {
             QueryBuilder left = whereLogical.getLeft();
             QueryBuilder right = whereLogical.getRight();
@@ -146,7 +145,6 @@ public class SqlWhere {
         String leftExprStr = leftExpr.toString();
         String rightExprStr = rightExpr.toString();
         rightExprStr = rightExprStr.replace("'", "");
-        System.out.println(leftExprStr + ":" + rightExprStr);
         // 获取运算符
         SQLBinaryOperator operator = ((SQLBinaryOpExpr) expr).getOperator();
         QueryBuilder queryBuilder;

@@ -2,6 +2,8 @@ package com.xishuang.es.sql;
 
 import com.alibaba.druid.sql.ast.SQLLimit;
 import com.alibaba.druid.sql.ast.statement.SQLSelectQueryBlock;
+import org.elasticsearch.index.query.InnerHitBuilder;
+import org.elasticsearch.search.aggregations.bucket.terms.TermsAggregationBuilder;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
 
 public class SqlLimit {
@@ -9,10 +11,6 @@ public class SqlLimit {
 
     public SqlLimit(SQLSelectQueryBlock sqlSelectQueryBlock) {
         this.sqlLimit = sqlSelectQueryBlock.getLimit();
-    }
-
-    public boolean isLimit() {
-        return sqlLimit != null;
     }
 
     /**
@@ -29,8 +27,14 @@ public class SqlLimit {
         }
     }
 
+    /**
+     * 针对limit处理
+     */
+    public void setLimit(TermsAggregationBuilder termsAggregationBuilder) {
+        if (sqlLimit == null) return;
 
-    public int getRowCount() {
-        return Integer.parseInt(sqlLimit.getRowCount().toString());
+        if (sqlLimit.getRowCount() != null) {
+            termsAggregationBuilder.size(Integer.parseInt(sqlLimit.getRowCount().toString()));
+        }
     }
 }

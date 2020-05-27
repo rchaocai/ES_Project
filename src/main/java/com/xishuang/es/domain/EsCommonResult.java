@@ -4,6 +4,7 @@ import com.alibaba.fastjson.JSON;
 import org.elasticsearch.common.Nullable;
 
 import java.util.List;
+import java.util.Map;
 
 public class EsCommonResult {
     /**
@@ -13,7 +14,7 @@ public class EsCommonResult {
     /**
      * 查询得到的DO实体集合
      */
-    private List<String> beans;
+    private List<Map<String, Object>> beans;
 
     /**
      * 如果没有进行排序，则该值为空
@@ -31,11 +32,11 @@ public class EsCommonResult {
         this.amounts = amounts;
     }
 
-    public List<String> getBeans() {
+    public List<Map<String, Object>> getBeans() {
         return beans;
     }
 
-    public void setBeans(List<String> beans) {
+    public void setBeans(List<Map<String, Object>> beans) {
         this.beans = beans;
     }
 

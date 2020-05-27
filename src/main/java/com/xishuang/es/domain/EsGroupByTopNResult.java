@@ -3,12 +3,13 @@ package com.xishuang.es.domain;
 import com.alibaba.fastjson.JSON;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * 分组查询
  * 代表一个分组
  */
-public class EsGroupResult {
+public class EsGroupByTopNResult {
     /**
      * 分组值
      */
@@ -16,7 +17,7 @@ public class EsGroupResult {
     /**
      * 一个分组内匹配到的DO实体集合
      */
-    private List<String> beans;
+    private List<Map<String, Object>> beans;
     /**
      * 一个分组内匹配到的总数
      */
@@ -30,11 +31,11 @@ public class EsGroupResult {
         this.value = value;
     }
 
-    public List<String> getBeans() {
+    public List<Map<String, Object>> getBeans() {
         return beans;
     }
 
-    public void setBeans(List<String> beans) {
+    public void setBeans(List<Map<String, Object>> beans) {
         this.beans = beans;
     }
 

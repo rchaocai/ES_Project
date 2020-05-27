@@ -36,6 +36,19 @@
             </exclusions>
         </dependency>
 
+        <!-- Spring Boot Web -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+            <exclusions>
+                <!-- 不使用Spring Boot默认日志记录器，这样才能使用log4j -->
+                <exclusion>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-starter-logging</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
         <!-- es -->
         <dependency>
             <groupId>org.elasticsearch</groupId>
@@ -62,6 +75,7 @@
             <artifactId>druid</artifactId>
             <version>1.1.9</version>
         </dependency>
+
 
     </dependencies>
 
